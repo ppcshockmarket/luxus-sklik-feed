@@ -1,12 +1,12 @@
-name: Sklik feed – CUSTOM_LABEL_1
+name: Sklik feed CUSTOM_LABEL_1
 
 on:
   schedule:
-    - cron: '0 1 * * *'      # denně 01:00 UTC (kvůli čerstvosti cen/stavů ve feedu)
-  workflow_dispatch: {}       # ruční spuštění z GitHub UI
+    - cron: '0 1 * * *'
+  workflow_dispatch: {}
 
 permissions:
-  contents: write             # aby mohl workflow nahrát soubor do Release
+  contents: write
 
 jobs:
   build:
@@ -19,22 +19,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Transformace feedu (CUSTOM_LABEL_1 = nevykonne)
+      - name: Transformace feedu
         env:
           NEVYKONNE_CSV_URL: ${{ secrets.NEVYKONNE_CSV_URL }}
           FEED_URL: https://www.luxusnipradlo.cz/publicdoc/shop_zbozicz.xml
           OUT_PATH: shop_zbozicz_sklik.xml
         run: python transform_feed.py
 
-      - name: Publikace feedu do GitHub Release (stabilní URL)
+      - name: Komprese vystupu (feed je >2 GB, Release limit 2 GB)
+        run: |
+          gzip -f shop_zbozicz_sklik.xml
+          ls -lh shop_zbozicz_sklik.xml.gz
+
+      - name: Publikace feedu do GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # jednorázově vytvoř release s pevným tagem "feed" (pokud už je, ignoruj chybu)
-          gh release create feed --title "Sklik feed" \
-            --notes "Upravený Zboží feed – nevýkonným produktům nastaven CUSTOM_LABEL_1=nevykonne." \
-            || true
-          # přepiš přílohu novou verzí
-          gh release upload feed shop_zbozicz_sklik.xml --clobber
-          echo "Hotovo. Stabilní URL feedu:"
-          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/feed/shop_zbozicz_sklik.xml"
+          gh release create feed --title "Sklik feed" --notes "Upraveny Zbozi feed gzip" || true
+          gh release upload feed shop_zbozicz_sklik.xml.gz --clobber
+          echo "Stabilni URL feedu:"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/feed/shop_zbozicz_sklik.xml.gz"
