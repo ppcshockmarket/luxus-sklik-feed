@@ -1,12 +1,12 @@
-name: Sklik feed CUSTOM_LABEL_1
+name: Sklik feed – CUSTOM_LABEL_1
 
 on:
   schedule:
-    - cron: '0 1 * * *'
-  workflow_dispatch: {}
+    - cron: '0 1 * * *'      # denně 01:00 UTC (kvůli čerstvosti cen/stavů ve feedu)
+  workflow_dispatch: {}       # ruční spuštění z GitHub UI
 
 permissions:
-  contents: write
+  contents: write             # aby mohl workflow nahrát soubor do Release
 
 jobs:
   build:
@@ -19,23 +19,44 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Transformace feedu
+      - name: Transformace feedu (CUSTOM_LABEL_1 = nevykonne)
         env:
           NEVYKONNE_CSV_URL: ${{ secrets.NEVYKONNE_CSV_URL }}
           FEED_URL: https://www.luxusnipradlo.cz/publicdoc/shop_zbozicz.xml
           OUT_PATH: shop_zbozicz_sklik.xml
         run: python transform_feed.py
 
-      - name: Komprese vystupu (feed je >2 GB, Release limit 2 GB)
+      - name: Komprese výstupu (feed je >2 GB, GitHub Release má limit 2 GB)
         run: |
           gzip -f shop_zbozicz_sklik.xml
           ls -lh shop_zbozicz_sklik.xml.gz
 
-      - name: Publikace feedu do GitHub Release
+      - name: Publikace feedu do GitHub Release (stabilní URL)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create feed --title "Sklik feed" --notes "Upraveny Zbozi feed gzip" || true
+          # jednorázově vytvoř release s pevným tagem "feed" (pokud už je, ignoruj chybu)
+          gh release create feed --title "Sklik feed" \
+            --notes "Upraveny Zbozi feed (gzip) - nevykonnym produktum nastaven CUSTOM_LABEL_1=nevykonne." \
+            || true
+          # přepiš přílohu novou verzí
           gh release upload feed shop_zbozicz_sklik.xml.gz --clobber
-          echo "Stabilni URL feedu:"
+          echo "Hotovo. Stabilni URL feedu:"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/feed/shop_zbozicz_sklik.xml.gz"
+
+      # Keep-alive: 1. a 15. v měsíci drobný commit → resetuje 60denní odpočet,
+      # takže GitHub naplánovaný cron nikdy nevypne. if: always() = poběží i po chybě.
+      - name: Keep-alive (ochrana cronu před 60denním vypnutím)
+        if: always()
+        continue-on-error: true
+        run: |
+          DAY=$(date -u +%d)
+          if [ "$DAY" = "01" ] || [ "$DAY" = "15" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            date -u > keepalive.txt
+            git add keepalive.txt
+            git commit -m "keep-alive [skip ci]" && git push || echo "nic k commitu / push preskocen"
+          else
+            echo "Keep-alive: dnes (den $DAY) se necommituje."
+          fi
